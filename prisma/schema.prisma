@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Workflow {
+  id          String        @id @default(cuid())
+  name        String
+  description String        @default("")
+  version     Int           @default(1)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  nodes       WorkflowNode[]
+  edges       WorkflowEdge[]
+  runs        WorkflowRun[]
+}
+
+model WorkflowNode {
+  id            String         @id
+  workflowId    String
+  kind          String
+  title         String
+  description   String         @default("")
+  meta          String         @default("")
+  positionX     Float
+  positionY     Float
+  config        String         @default("{}")
+  workflow      Workflow       @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  outgoingEdges WorkflowEdge[] @relation("EdgeSource")
+  incomingEdges WorkflowEdge[] @relation("EdgeTarget")
+
+  @@index([workflowId])
+}
+
+model WorkflowEdge {
+  id           String       @id
+  workflowId   String
+  sourceNodeId String
+  targetNodeId String
+  sourceHandle String?
+  targetHandle String?
+  workflow     Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  sourceNode   WorkflowNode @relation("EdgeSource", fields: [sourceNodeId], references: [id], onDelete: NoAction)
+  targetNode   WorkflowNode @relation("EdgeTarget", fields: [targetNodeId], references: [id], onDelete: NoAction)
+
+  @@index([workflowId])
+  @@index([sourceNodeId])
+  @@index([targetNodeId])
+}
+
+model WorkflowRun {
+  id          String            @id @default(cuid())
+  workflowId  String
+  status      String
+  startedAt   DateTime          @default(now())
+  completedAt DateTime?
+  error       String?
+  result      String?
+  workflow    Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  steps       WorkflowRunStep[]
+
+  @@index([workflowId, startedAt])
+}
+
+model WorkflowRunStep {
+  id          String      @id @default(cuid())
+  runId       String
+  nodeId      String
+  kind        String
+  status      String
+  startedAt   DateTime    @default(now())
+  completedAt DateTime?
+  input       String?
+  output      String?
+  error       String?
+  run         WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, startedAt])
+}
