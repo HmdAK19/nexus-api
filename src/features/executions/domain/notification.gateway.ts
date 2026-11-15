@@ -1,7 +1,10 @@
 export interface NotificationRequest {
   channel: 'inApp' | 'webhook';
   message: string;
-  webhookUrl?: string;
+  runId: string;
+  title: string;
+  webhookEndpointId?: string;
+  workflowId: string;
 }
 
 export interface NotificationResult {

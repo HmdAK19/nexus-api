@@ -1,36 +1,36 @@
-import { isIP } from 'node:net';
-
 import { AppError } from '../../../shared/errors/AppError.js';
+import type { InboxRepository } from '../../inbox/domain/inbox.repository.js';
+import type { WebhookEndpointRepository } from '../../webhook-endpoints/domain/webhook-endpoint.repository.js';
+import { parsePublicWebhookUrl } from '../../webhook-endpoints/domain/webhook-url.policy.js';
 import type { NotificationGateway, NotificationRequest } from '../domain/notification.gateway.js';
 
-function isUnsafeHost(hostname: string) {
-  const normalized = hostname.toLowerCase();
-  if (normalized === 'localhost' || normalized.endsWith('.localhost')) return true;
-  if (isIP(normalized) === 4) {
-    const [first = -1, second = -1] = normalized.split('.').map(Number);
-    return (
-      first === 10 ||
-      first === 127 ||
-      (first === 169 && second === 254) ||
-      (first === 172 && second >= 16 && second <= 31) ||
-      (first === 192 && second === 168)
-    );
-  }
-  return isIP(normalized) === 6 && (normalized === '::1' || normalized.startsWith('fc'));
-}
-
 export class HttpNotificationGateway implements NotificationGateway {
+  constructor(
+    private readonly inbox: InboxRepository,
+    private readonly webhookEndpoints: WebhookEndpointRepository,
+  ) {}
+
   async deliver(request: NotificationRequest, signal: AbortSignal) {
     if (request.channel === 'inApp') {
+      await this.inbox.create({
+        body: request.message,
+        runId: request.runId,
+        title: request.title,
+        workflowId: request.workflowId,
+      });
       return { channel: 'inApp' as const, delivered: true, destination: 'Nexus inbox' };
     }
-    if (!request.webhookUrl) {
-      throw new AppError('A webhook URL is required.', 422, 'WEBHOOK_URL_REQUIRED');
+    if (!request.webhookEndpointId) {
+      throw new AppError('A webhook endpoint is required.', 422, 'WEBHOOK_ENDPOINT_REQUIRED');
     }
-    const url = new URL(request.webhookUrl);
-    if (url.protocol !== 'https:' || isUnsafeHost(url.hostname)) {
-      throw new AppError('Webhook URL must be a public HTTPS endpoint.', 422, 'UNSAFE_WEBHOOK_URL');
+    const endpoint = await this.webhookEndpoints.findById(request.webhookEndpointId);
+    if (!endpoint) {
+      throw new AppError('Webhook endpoint not found.', 422, 'WEBHOOK_NOT_FOUND');
     }
+    if (!endpoint.enabled) {
+      throw new AppError('Webhook endpoint is disabled.', 422, 'WEBHOOK_DISABLED');
+    }
+    const url = parsePublicWebhookUrl(endpoint.url);
     const response = await fetch(url, {
       method: 'POST',
       signal: AbortSignal.any([signal, AbortSignal.timeout(5_000)]),
@@ -38,6 +38,6 @@ export class HttpNotificationGateway implements NotificationGateway {
       body: JSON.stringify({ event: 'workflow.briefing.created', message: request.message }),
     });
     if (!response.ok) throw new Error(`Webhook returned ${response.status}.`);
-    return { channel: 'webhook' as const, delivered: true, destination: url.hostname };
+    return { channel: 'webhook' as const, delivered: true, destination: endpoint.name };
   }
 }
