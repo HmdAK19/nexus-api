@@ -6,6 +6,34 @@ import type {
   RunnerCallbacks,
   RunnerResult,
 } from '../domain/execution.types.js';
+import { validateNodeOutput } from '../domain/node.contracts.js';
+
+function numericConfig(node: WorkflowNode, key: string, fallback: number) {
+  const value = node.config[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function wait(durationMs: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(
+        signal.reason instanceof Error ? signal.reason : new Error('Execution was cancelled.'),
+      );
+      return;
+    }
+    const timer = setTimeout(resolve, durationMs);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(
+          signal.reason instanceof Error ? signal.reason : new Error('Execution was cancelled.'),
+        );
+      },
+      { once: true },
+    );
+  });
+}
 
 function executionOrder(workflow: WorkflowDefinition): WorkflowNode[] {
   if (workflow.nodes.length === 0)
@@ -45,24 +73,71 @@ export class WorkflowRunner {
     workflow: WorkflowDefinition,
     callbacks: RunnerCallbacks,
     signal: AbortSignal,
+    runId: string,
   ): Promise<RunnerResult> {
     const outputs: Record<string, NodeOutput> = {};
     for (const node of executionOrder(workflow)) {
       const executor = this.executors.get(node.kind);
       if (!executor)
         throw new AppError(`No executor exists for ${node.kind}.`, 422, 'EXECUTOR_NOT_FOUND');
-      const sourceIds = workflow.edges
-        .filter((edge) => edge.target === node.id)
-        .map((edge) => edge.source);
-      const input = sourceIds.flatMap((id) => (outputs[id] ? [outputs[id]] : []));
+      const incomingEdges = workflow.edges.filter((edge) => edge.target === node.id);
+      const activeEdges = incomingEdges.filter((edge) => {
+        const sourceOutput = outputs[edge.source];
+        if (!sourceOutput) return false;
+        if (sourceOutput.error) return edge.sourceHandle === 'error';
+        if (edge.sourceHandle === 'error') return false;
+        if (sourceOutput.condition && ['true', 'false'].includes(edge.sourceHandle ?? ''))
+          return (edge.sourceHandle === 'true') === sourceOutput.condition.matched;
+        return true;
+      });
+      if (incomingEdges.length > 0 && activeEdges.length === 0) {
+        await callbacks.onStepSkipped(node, 'No active incoming branch.');
+        continue;
+      }
+      const input = activeEdges
+        .map((edge) => outputs[edge.source])
+        .filter((output): output is NodeOutput => output !== undefined);
       try {
-        const output = await executor.execute(node, { allOutputs: outputs, input, signal });
+        const retryAttempts = numericConfig(node, 'retryAttempts', 0);
+        const retryDelayMs = numericConfig(node, 'retryDelayMs', 1_000);
+        let attempts = 0;
+        let rawOutput: NodeOutput | undefined;
+        let lastError: unknown;
+        while (attempts <= retryAttempts) {
+          attempts += 1;
+          try {
+            rawOutput = await executor.execute(node, {
+              allOutputs: outputs,
+              input,
+              runId,
+              signal,
+              workflowId: workflow.id,
+            });
+            break;
+          } catch (error) {
+            lastError = error;
+            if (attempts > retryAttempts || signal.aborted) break;
+            await wait(Math.min(30_000, retryDelayMs * 2 ** (attempts - 1)), signal);
+          }
+        }
+        if (!rawOutput) throw lastError;
+        const output = validateNodeOutput(node.kind, rawOutput);
         outputs[node.id] = output;
         await callbacks.onStepSucceeded(node, input, output);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Node execution failed.';
         await callbacks.onStepFailed(node, input, message);
-        throw error;
+        const errorEdgeExists = workflow.edges.some(
+          (edge) => edge.source === node.id && edge.sourceHandle === 'error',
+        );
+        if (!errorEdgeExists) throw error;
+        outputs[node.id] = {
+          error: {
+            attempts: numericConfig(node, 'retryAttempts', 0) + 1,
+            message,
+            nodeId: node.id,
+          },
+        };
       }
     }
     const briefing =

@@ -1,4 +1,12 @@
-export const workflowNodeKinds = ['trigger', 'context', 'intelligence', 'action'] as const;
+export const workflowNodeKinds = [
+  'trigger',
+  'context',
+  'intelligence',
+  'condition',
+  'delay',
+  'http',
+  'action',
+] as const;
 export type WorkflowNodeKind = (typeof workflowNodeKinds)[number];
 
 export interface WorkflowNode {
@@ -24,10 +32,16 @@ export interface WorkflowDefinition {
   name: string;
   description: string;
   version: number;
+  isFavorite: boolean;
+  isEnabled: boolean;
+  tags: string[];
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   createdAt: Date;
   updatedAt: Date;
 }
 
-export type WorkflowDraft = Pick<WorkflowDefinition, 'name' | 'description' | 'nodes' | 'edges'>;
+export type WorkflowDraft = Pick<
+  WorkflowDefinition,
+  'name' | 'description' | 'tags' | 'nodes' | 'edges'
+>;

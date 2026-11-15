@@ -1,8 +1,19 @@
 import type { WorkflowDefinition, WorkflowNode } from '../../workflows/domain/workflow.types.js';
 
 export type RunStatus = 'running' | 'succeeded' | 'failed';
+export type StepStatus = RunStatus | 'skipped';
 
 export interface NodeOutput extends Record<string, unknown> {
+  delay?: { durationMs: number; completedAt: string };
+  error?: { message: string; attempts: number; nodeId: string };
+  http?: {
+    body: unknown;
+    durationMs: number;
+    headers: Record<string, string>;
+    status: number;
+    url: string;
+  };
+  condition?: { actual: unknown; matched: boolean };
   briefing?: string;
   plan?: string[];
   planning?: {
@@ -38,11 +49,22 @@ export interface WorkflowRun {
   steps: WorkflowRunStep[];
 }
 
+export type ActivityStatus = 'all' | RunStatus;
+
+export interface ActivityRun extends WorkflowRun {
+  workflowName: string;
+}
+
+export interface ActivityPage {
+  items: ActivityRun[];
+  nextCursor: string | null;
+}
+
 export interface WorkflowRunStep {
   id: string;
   nodeId: string;
   kind: string;
-  status: RunStatus;
+  status: StepStatus;
   startedAt: Date;
   completedAt: Date | null;
   input: unknown;
@@ -53,7 +75,9 @@ export interface WorkflowRunStep {
 export interface ExecutorContext {
   allOutputs: Readonly<Record<string, NodeOutput>>;
   input: ReadonlyArray<NodeOutput>;
+  runId: string;
   signal: AbortSignal;
+  workflowId: string;
 }
 
 export interface NodeExecutor {
@@ -64,6 +88,7 @@ export interface NodeExecutor {
 export interface RunnerCallbacks {
   onStepFailed: (node: WorkflowNode, input: NodeOutput[], error: string) => Promise<void>;
   onStepSucceeded: (node: WorkflowNode, input: NodeOutput[], output: NodeOutput) => Promise<void>;
+  onStepSkipped: (node: WorkflowNode, reason: string) => Promise<void>;
 }
 
 export interface RunnerResult {
