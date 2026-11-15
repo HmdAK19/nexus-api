@@ -7,6 +7,28 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model WorkspaceProfile {
+  id          String   @id @default("default")
+  displayName String   @default("Nexus User")
+  initials    String   @default("NU")
+  timezone    String   @default("Asia/Tehran")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WebhookEndpoint {
+  id             String    @id @default(cuid())
+  name           String
+  url            String
+  enabled        Boolean   @default(true)
+  lastTestedAt   DateTime?
+  lastTestStatus String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([enabled, name])
+}
+
 model Workflow {
   id          String        @id @default(cuid())
   name        String
@@ -14,9 +36,13 @@ model Workflow {
   version     Int           @default(1)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+  isFavorite  Boolean       @default(false)
+  isEnabled   Boolean       @default(true)
+  tags        String        @default("[]")
   nodes       WorkflowNode[]
   edges       WorkflowEdge[]
   runs        WorkflowRun[]
+  inboxMessages InboxMessage[]
 }
 
 model WorkflowNode {
@@ -62,8 +88,27 @@ model WorkflowRun {
   result      String?
   workflow    Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   steps       WorkflowRunStep[]
+  inboxMessages InboxMessage[]
 
   @@index([workflowId, startedAt])
+}
+
+model InboxMessage {
+  id         String      @id @default(cuid())
+  workflowId String
+  runId      String
+  title      String
+  body       String
+  status     String      @default("unread")
+  createdAt  DateTime    @default(now())
+  readAt     DateTime?
+  archivedAt DateTime?
+  workflow   Workflow    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  run        WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([workflowId, createdAt])
+  @@index([runId])
 }
 
 model WorkflowRunStep {

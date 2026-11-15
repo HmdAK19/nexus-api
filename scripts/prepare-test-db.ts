@@ -8,13 +8,34 @@ if (existsSync(databasePath)) rmSync(databasePath);
 const database = new DatabaseSync(databasePath);
 database.exec(`
   PRAGMA foreign_keys = ON;
+  CREATE TABLE "WorkspaceProfile" (
+    "id" TEXT NOT NULL PRIMARY KEY DEFAULT 'default',
+    "displayName" TEXT NOT NULL DEFAULT 'Nexus User',
+    "initials" TEXT NOT NULL DEFAULT 'NU',
+    "timezone" TEXT NOT NULL DEFAULT 'Asia/Tehran',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  );
+  CREATE TABLE "WebhookEndpoint" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "url" TEXT NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "lastTestedAt" DATETIME,
+    "lastTestStatus" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  );
   CREATE TABLE "Workflow" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
     "description" TEXT NOT NULL DEFAULT '',
     "version" INTEGER NOT NULL DEFAULT 1,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
+    "updatedAt" DATETIME NOT NULL,
+    "isFavorite" BOOLEAN NOT NULL DEFAULT false,
+    "isEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "tags" TEXT NOT NULL DEFAULT '[]'
   );
   CREATE TABLE "WorkflowNode" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -62,11 +83,28 @@ database.exec(`
     "error" TEXT,
     CONSTRAINT "WorkflowRunStep_runId_fkey" FOREIGN KEY ("runId") REFERENCES "WorkflowRun" ("id") ON DELETE CASCADE ON UPDATE CASCADE
   );
+  CREATE TABLE "InboxMessage" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "workflowId" TEXT NOT NULL,
+    "runId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "body" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'unread',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "readAt" DATETIME,
+    "archivedAt" DATETIME,
+    CONSTRAINT "InboxMessage_workflowId_fkey" FOREIGN KEY ("workflowId") REFERENCES "Workflow" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "InboxMessage_runId_fkey" FOREIGN KEY ("runId") REFERENCES "WorkflowRun" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  );
   CREATE INDEX "WorkflowNode_workflowId_idx" ON "WorkflowNode"("workflowId");
+  CREATE INDEX "WebhookEndpoint_enabled_name_idx" ON "WebhookEndpoint"("enabled", "name");
   CREATE INDEX "WorkflowEdge_workflowId_idx" ON "WorkflowEdge"("workflowId");
   CREATE INDEX "WorkflowEdge_sourceNodeId_idx" ON "WorkflowEdge"("sourceNodeId");
   CREATE INDEX "WorkflowEdge_targetNodeId_idx" ON "WorkflowEdge"("targetNodeId");
   CREATE INDEX "WorkflowRun_workflowId_startedAt_idx" ON "WorkflowRun"("workflowId", "startedAt");
   CREATE INDEX "WorkflowRunStep_runId_startedAt_idx" ON "WorkflowRunStep"("runId", "startedAt");
+  CREATE INDEX "InboxMessage_status_createdAt_idx" ON "InboxMessage"("status", "createdAt");
+  CREATE INDEX "InboxMessage_workflowId_createdAt_idx" ON "InboxMessage"("workflowId", "createdAt");
+  CREATE INDEX "InboxMessage_runId_idx" ON "InboxMessage"("runId");
 `);
 database.close();
