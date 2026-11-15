@@ -21,12 +21,26 @@ function parseConfig(config: string): Record<string, unknown> {
   }
 }
 
+function parseTags(tags: string): string[] {
+  try {
+    const value: unknown = JSON.parse(tags);
+    return Array.isArray(value)
+      ? value.filter((tag): tag is string => typeof tag === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function mapWorkflow(record: WorkflowRecord): WorkflowDefinition {
   return {
     id: record.id,
     name: record.name,
     description: record.description,
     version: record.version,
+    isFavorite: record.isFavorite,
+    isEnabled: record.isEnabled,
+    tags: parseTags(record.tags),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     nodes: record.nodes.map((node) => ({
@@ -80,7 +94,12 @@ export class PrismaWorkflowRepository implements WorkflowRepository {
   async create(draft: WorkflowDraft) {
     return mapWorkflow(
       await this.client.workflow.create({
-        data: { name: draft.name, description: draft.description, ...nestedGraph(draft) },
+        data: {
+          name: draft.name,
+          description: draft.description,
+          tags: JSON.stringify(draft.tags),
+          ...nestedGraph(draft),
+        },
         include: workflowInclude,
       }),
     );
@@ -111,6 +130,7 @@ export class PrismaWorkflowRepository implements WorkflowRepository {
         data: {
           name: draft.name,
           description: draft.description,
+          tags: JSON.stringify(draft.tags),
           version: { increment: 1 },
           ...nestedGraph(draft),
         },
@@ -122,5 +142,25 @@ export class PrismaWorkflowRepository implements WorkflowRepository {
 
   async delete(id: string) {
     await this.client.workflow.delete({ where: { id } });
+  }
+
+  async setFavorite(id: string, isFavorite: boolean) {
+    return mapWorkflow(
+      await this.client.workflow.update({
+        where: { id },
+        data: { isFavorite },
+        include: workflowInclude,
+      }),
+    );
+  }
+
+  async setEnabled(id: string, isEnabled: boolean) {
+    return mapWorkflow(
+      await this.client.workflow.update({
+        where: { id },
+        data: { isEnabled },
+        include: workflowInclude,
+      }),
+    );
   }
 }

@@ -25,4 +25,16 @@ export class WorkflowController {
     await this.service.delete(String(request.params.id));
     response.status(204).send();
   };
+
+  setFavorite = async (request: Request, response: Response) => {
+    response.json({
+      data: await this.service.setFavorite(String(request.params.id), request.body.isFavorite),
+    });
+  };
+
+  setEnabled = async (request: Request, response: Response) => {
+    response.json({
+      data: await this.service.setEnabled(String(request.params.id), request.body.isEnabled),
+    });
+  };
 }

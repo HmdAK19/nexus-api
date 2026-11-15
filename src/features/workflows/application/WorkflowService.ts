@@ -28,4 +28,14 @@ export class WorkflowService {
     await this.get(id);
     await this.repository.delete(id);
   }
+
+  async setFavorite(id: string, isFavorite: boolean) {
+    await this.get(id);
+    return this.repository.setFavorite(id, isFavorite);
+  }
+
+  async setEnabled(id: string, isEnabled: boolean) {
+    await this.get(id);
+    return this.repository.setEnabled(id, isEnabled);
+  }
 }

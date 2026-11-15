@@ -75,6 +75,7 @@ export class WorkflowScheduler {
     try {
       const workflows = await this.workflows.findAll();
       for (const workflow of workflows) {
+        if (!workflow.isEnabled) continue;
         const key = scheduleKey(workflow, now);
         if (!key || this.dispatched.has(key)) continue;
         const latest = (await this.executions.listRuns(workflow.id))[0];

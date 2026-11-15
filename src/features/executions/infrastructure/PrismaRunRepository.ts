@@ -1,7 +1,14 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 import type { RunRepository } from '../domain/run.repository.js';
-import type { NodeOutput, RunStatus, WorkflowRun } from '../domain/execution.types.js';
+import type {
+  ActivityPage,
+  ActivityStatus,
+  NodeOutput,
+  RunStatus,
+  StepStatus,
+  WorkflowRun,
+} from '../domain/execution.types.js';
 import type { WorkflowNode } from '../../workflows/domain/workflow.types.js';
 
 const runInclude = {
@@ -31,7 +38,7 @@ function mapRun(record: RunRecord): WorkflowRun {
       id: step.id,
       nodeId: step.nodeId,
       kind: step.kind,
-      status: step.status as RunStatus,
+      status: step.status as StepStatus,
       startedAt: step.startedAt,
       completedAt: step.completedAt,
       input: parseJson(step.input),
@@ -51,6 +58,10 @@ export class PrismaRunRepository implements RunRepository {
         include: runInclude,
       }),
     );
+  }
+
+  async delete(runId: string) {
+    await this.client.workflowRun.delete({ where: { id: runId } });
   }
 
   async complete(runId: string, result: Record<string, unknown>) {
@@ -91,6 +102,39 @@ export class PrismaRunRepository implements RunRepository {
     return records.map(mapRun);
   }
 
+  async listActivity(
+    status: ActivityStatus,
+    limit: number,
+    cursor?: string,
+    from?: Date,
+    to?: Date,
+    query?: string,
+    order: 'newest' | 'oldest' = 'newest',
+  ): Promise<ActivityPage> {
+    const records = await this.client.workflowRun.findMany({
+      where: {
+        ...(status === 'all' ? {} : { status }),
+        ...(from || to
+          ? { startedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
+          : {}),
+        ...(query ? { workflow: { name: { contains: query } } } : {}),
+      },
+      include: { ...runInclude, workflow: { select: { name: true } } },
+      orderBy: [
+        { startedAt: order === 'newest' ? 'desc' : 'asc' },
+        { id: order === 'newest' ? 'desc' : 'asc' },
+      ],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    const hasMore = records.length > limit;
+    const items = records.slice(0, limit).map((record) => ({
+      ...mapRun(record),
+      workflowName: record.workflow.name,
+    }));
+    return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
+  }
+
   async recordSuccessfulStep(
     runId: string,
     node: WorkflowNode,
@@ -120,6 +164,19 @@ export class PrismaRunRepository implements RunRepository {
         completedAt: new Date(),
         input: JSON.stringify(input),
         error,
+      },
+    });
+  }
+
+  async recordSkippedStep(runId: string, node: WorkflowNode, reason: string) {
+    await this.client.workflowRunStep.create({
+      data: {
+        runId,
+        nodeId: node.id,
+        kind: node.kind,
+        status: 'skipped',
+        completedAt: new Date(),
+        error: reason,
       },
     });
   }

@@ -16,3 +16,17 @@ export function validateBody(schema: ZodType): RequestHandler {
     next();
   };
 }
+
+export function validateParams(schema: ZodType): RequestHandler {
+  return (request, _response, next) => {
+    const result = schema.safeParse(request.params);
+    if (!result.success) {
+      next(
+        new AppError('Request validation failed.', 422, 'VALIDATION_ERROR', result.error.flatten()),
+      );
+      return;
+    }
+    request.params = result.data as typeof request.params;
+    next();
+  };
+}
